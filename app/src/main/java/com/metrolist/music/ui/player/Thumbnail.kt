@@ -3,7 +3,6 @@ package com.metrolist.music.ui.player
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.aspectRatio
@@ -13,8 +12,11 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -27,15 +29,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalView
-import androidx.compose.ui.platform.LocalLayoutDirection
-import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.metrolist.music.LocalPlayerConnection
 import com.metrolist.music.constants.PlayerHorizontalPadding
 import com.metrolist.music.constants.ShowLyricsKey
-import com.metrolist.music.constants.SwipeThumbnailKey
 import com.metrolist.music.constants.ThumbnailCornerRadius
 import com.metrolist.music.ui.component.Lyrics
 import com.metrolist.music.utils.rememberPreference
@@ -55,10 +54,6 @@ fun Thumbnail(
     val error by playerConnection.error.collectAsState()
 
     val showLyrics by rememberPreference(ShowLyricsKey, false)
-    val swipeThumbnail by rememberPreference(SwipeThumbnailKey, true)
-
-    val layoutDirection = LocalLayoutDirection.current
-    val isRtl = layoutDirection == LayoutDirection.Rtl
 
     DisposableEffect(showLyrics) {
         currentView.keepScreenOn = showLyrics
@@ -67,71 +62,59 @@ fun Thumbnail(
         }
     }
 
-    var offsetX by remember { mutableFloatStateOf(0f) }
+    // Pager state to manage the page transitions
+    val pagerState = rememberPagerState(initialPage = playerConnection.player.currentMediaItemIndex)
+
+    // When song changes, scroll to the respective page in the pager
+    LaunchedEffect(mediaMetadata) {
+        mediaMetadata?.let {
+            pagerState.scrollToPage(playerConnection.player.currentMediaItemIndex)
+        }
+    }
 
     Box(modifier = modifier) {
         AnimatedVisibility(
             visible = !showLyrics && error == null,
             enter = fadeIn(),
             exit = fadeOut(),
-            modifier =
-                Modifier
-                    .fillMaxSize()
-                    .statusBarsPadding(),
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding(),
         ) {
-            Box(
-                contentAlignment = Alignment.Center,
-                modifier =
-                    Modifier
-                        .fillMaxSize()
+            // HorizontalPager for swiping between song thumbnails
+            HorizontalPager(
+                pageCount = playerConnection.player.mediaItemCount, // total media items
+                state = pagerState,
+                modifier = Modifier.fillMaxSize(),
+            ) { page ->
+                val mediaItem = playerConnection.player.getMediaItemAt(page)
+                val artworkUrl = mediaItem.mediaMetadata.artworkUri
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .aspectRatio(1f)
                         .padding(horizontal = PlayerHorizontalPadding)
+                        .clip(RoundedCornerShape(ThumbnailCornerRadius * 2))
                         .pointerInput(Unit) {
-                            detectHorizontalDragGestures(
-                                onDragCancel = {
-                                    offsetX = 0f
-                                },
-                                onHorizontalDrag = { _, dragAmount ->
-                                    if (swipeThumbnail) {
-                                        offsetX += if (isRtl) -dragAmount else dragAmount
+                            detectTapGestures(
+                                onDoubleTap = { offset ->
+                                    if (offset.x < size.width / 2) {
+                                        playerConnection.player.seekBack()
+                                    } else {
+                                        playerConnection.player.seekForward()
                                     }
-                                },
-                                onDragEnd = {
-                                    if (offsetX > 200) {
-                                        if (playerConnection.player.previousMediaItemIndex != -1) {
-                                            playerConnection.player.seekToPreviousMediaItem()
-                                        }
-                                    } else if (offsetX < -200) {
-                                        if (playerConnection.player.nextMediaItemIndex != -1) {
-                                            playerConnection.player.seekToNext()
-                                        }
-                                    }
-                                    offsetX = 0f
                                 },
                             )
                         },
-            ) {
-                AsyncImage(
-                    model = mediaMetadata?.thumbnailUrl,
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier =
-                        Modifier
-                            .offset { IntOffset(offsetX.roundToInt(), 0) }
-                            .fillMaxWidth()
-                            .aspectRatio(1f)
-                            .clip(RoundedCornerShape(ThumbnailCornerRadius * 2))
-                            .pointerInput(Unit) {
-                                detectTapGestures(
-                                    onDoubleTap = { offset ->
-                                        if (offset.x < size.width / 2) {
-                                            playerConnection.player.seekBack()
-                                        } else {
-                                            playerConnection.player.seekForward()
-                                        }
-                                    },
-                                )
-                            },
-                )
+                    contentAlignment = Alignment.Center
+                ) {
+                    AsyncImage(
+                        model = artworkUrl?.toString(),
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                    )
+                }
             }
         }
 
@@ -151,10 +134,9 @@ fun Thumbnail(
             visible = error != null,
             enter = fadeIn(),
             exit = fadeOut(),
-            modifier =
-                Modifier
-                    .padding(32.dp)
-                    .align(Alignment.Center),
+            modifier = Modifier
+                .padding(32.dp)
+                .align(Alignment.Center),
         ) {
             error?.let { error ->
                 PlaybackError(
