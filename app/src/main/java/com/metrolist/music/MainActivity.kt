@@ -567,7 +567,7 @@ class MainActivity : ComponentActivity() {
                                 onSearch = onSearch,
                                 active = active,
                                 onActiveChange = onActiveChange,
-                                scrollBehavior = searchBarScrollBehavior,
+                                scrollBehavior = null,
                                 placeholder = {
                                     Text(
                                         text = stringResource(
